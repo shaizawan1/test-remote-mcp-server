@@ -1,0 +1,10 @@
+{
+  "Food & Dining": ["Groceries", "Restaurants", "Coffee Shops", "Zomato", "Swiggy"],
+  "Transportation": ["Cab", "Bus", "Train", "Flight", "Metro", "Fuel", "Parking"],
+  "Entertainment": ["Movies", "Netflix", "Amazon Prime", "Spotify", "Concerts"],
+  "Education": ["Online Courses", "Books", "Workshops", "University", "Tutoring"],
+  "Healthcare": ["Doctor", "Medicine", "Gym", "Insurance", "Therapy"],
+  "Shopping": ["Clothes", "Electronics", "Home Decor", "Amazon", "Flipkart"],
+  "Bills & Utilities": ["Electricity", "Water", "Internet", "Mobile Recharge", "Rent"],
+  "Travel": ["Hotels", "Flights", "Tour Packages", "Visa"]
+}
