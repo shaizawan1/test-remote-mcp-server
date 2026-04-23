@@ -1,113 +1,100 @@
-from fastmcp import FastMCP
-import sqlite3
+# THIS IS ASYNC VERSION 
 import os
 import json
-# Create database connection
-# DB_PATH = "expenses.db"
-DB_PATH = os.path.join(os.path.dirname(__file__), "expenses.db")
-CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# CATEGORIES_PATH = os.path.join(BASE_DIR, "categories.json")
+import aiosqlite
+import anyio
+from fastmcp import FastMCP
 
+# 1. SETUP PATHS
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "expenses.db")
+CATEGORIES_PATH = os.path.join(BASE_DIR, "categories.json")
+
+# 2. INITIALIZE MCP
 mcp = FastMCP("ExpenseTracker")
 
-def init_db():
-    """Initialize the database table if it doesn't exist."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            amount REAL NOT NULL,
-            category TEXT,
-            subcategory TEXT,
-            note TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-# Initialize database when server starts
-init_db()
+# 3. ASYNC DATABASE INITIALIZATION
+async def init_db():
+    """Initialize the database table and enable WAL mode for concurrent access."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # WAL mode is critical for preventing 'database is locked' errors
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                amount REAL NOT NULL,
+                category TEXT,
+                subcategory TEXT,
+                note TEXT
+            )
+        """)
+        await db.commit()
 
 
-mcp = FastMCP(name="Demo Server")
+# 4. ASYNC TOOLS
 @mcp.tool()
-def add_expense(date: str, amount: float, category: str, subcategory: str = None, note: str = None) -> str:
-    """Add a new expense entry to the database."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO expenses (date, amount, category, subcategory, note)
-        VALUES (?, ?, ?, ?, ?)
-    """, (date, amount, category, subcategory, note))
-    conn.commit()
-    conn.close()
+async def add_expense(date: str, amount: float, category: str, subcategory: str = None, note: str = None) -> str:
+    """Add a new expense entry to the database asynchronously."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO expenses (date, amount, category, subcategory, note)
+            VALUES (?, ?, ?, ?, ?)
+        """, (date, amount, category, subcategory, note))
+        await db.commit()
     return f"Expense of ₹{amount} added successfully on {date}"
 
 @mcp.tool()
-def list_expenses(start_date: str, end_date: str) -> str:
+async def list_expenses(start_date: str, end_date: str) -> str:
     """List expenses within a given date range (YYYY-MM-DD)."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, date, amount, category, subcategory, note 
-        FROM expenses 
-        WHERE date BETWEEN ? AND ? 
-        ORDER BY date ASC
-    """, (start_date, end_date))
-    rows = cursor.fetchall()
-    conn.close()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT id, date, amount, category, subcategory, note 
+            FROM expenses 
+            WHERE date BETWEEN ? AND ? 
+            ORDER BY date ASC
+        """, (start_date, end_date)) as cursor:
+            rows = await cursor.fetchall()
     
     if not rows:
         return f"No expenses found between {start_date} and {end_date}."
     
     result = f"Expenses from {start_date} to {end_date}:\n\n"
     result += "Date | Amount | Category | Subcategory | Note\n"
-    result += "-" * 50 + "\n"
+    result += "-" * 60 + "\n"
     for row in rows:
-        result += f"{row[1]} | ₹{row[2]} | {row[3]} | {row[4]} | {row[5]}\n"
+        result += f"{row['date']} | ₹{row['amount']} | {row['category']} | {row['subcategory'] or ''} | {row['note'] or ''}\n"
     
-    total = sum(row[2] for row in rows)
+    total = sum(row['amount'] for row in rows)
     result += f"\nTotal: ₹{total}"
     return result
 
-
 @mcp.tool()
-def summarize_expenses(start_date: str, end_date: str, category: str = None) -> str:
+async def summarize_expenses(start_date: str, end_date: str, category: str = None) -> str:
     """Get total expense within a date range, optionally filtered by category."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    async with aiosqlite.connect(DB_PATH) as db:
+        if category:
+            query = "SELECT SUM(amount) FROM expenses WHERE date BETWEEN ? AND ? AND category = ?"
+            params = (start_date, end_date, category)
+        else:
+            query = "SELECT SUM(amount) FROM expenses WHERE date BETWEEN ? AND ?"
+            params = (start_date, end_date)
+            
+        async with db.execute(query, params) as cursor:
+            row = await cursor.fetchone()
+            total = row[0] if row[0] is not None else 0
     
-    if category:
-        cursor.execute("""
-            SELECT SUM(amount) FROM expenses 
-            WHERE date BETWEEN ? AND ? AND category = ?
-        """, (start_date, end_date, category))
-    else:
-        cursor.execute("""
-            SELECT SUM(amount) FROM expenses 
-            WHERE date BETWEEN ? AND ?
-        """, (start_date, end_date))
-    
-    total = cursor.fetchone()[0]
-    conn.close()
-    
-    if total is None:
-        total = 0
-    
-    if category:
-        return f"Total expense on {category} from {start_date} to {end_date}: ₹{total}"
-    else:
-        return f"Total expense from {start_date} to {end_date}: ₹{total}"
+    return f"Total expense {'for ' + category if category else ''} from {start_date} to {end_date}: ₹{total}"
 
+# 5. ASYNC RESOURCES
 @mcp.resource("expenses://categories", mime_type="application/json")
-def get_categories() -> str:
-    """Return the list of valid categories and subcategories."""
-    with open(CATEGORIES_PATH, "r") as f: 
-        return f.read()
+async def get_categories() -> str:
+    """Return the list of valid categories and subcategories using async file reading."""
+    # anyio.Path allows for non-blocking file I/O
+    path = anyio.Path(CATEGORIES_PATH)
+    return await path.read_text()
 
-# Run the server with HTTP transport
-if __name__ == "__main__":
-    mcp.run(transport="http", host="0.0.0.0", port=8000)
+# 6. RUN SERVER
+# if __name__ == "__main__":
+#     mcp.run(transport="http", host="0.0.0.0", port=8000)
