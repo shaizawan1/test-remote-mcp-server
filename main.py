@@ -95,10 +95,15 @@ async def summarize_expenses(start_date: str, end_date: str, category: str = Non
 # 5. ASYNC RESOURCES
 @mcp.resource("expenses://categories", mime_type="application/json")
 async def get_categories() -> str:
-    """Return the list of valid categories and subcategories using async file reading."""
-    # anyio.Path allows for non-blocking file I/O
-    path = anyio.Path(CATEGORIES_PATH)
-    return await path.read_text()
+    default = {"categories": ["Food", "Transport", "Bills"]}
+    try:
+        path = anyio.Path(CATEGORIES_PATH)
+        if await path.exists():
+            content = await path.read_text()
+            return content if json.loads(content) else json.dumps(default)
+        return json.dumps(default)
+    except Exception:
+        return json.dumps(default)
 
 # 6. RUN SERVER
 # if __name__ == "__main__":
