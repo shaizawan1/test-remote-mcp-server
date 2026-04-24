@@ -4,14 +4,20 @@ import json
 import aiosqlite
 import anyio
 from fastmcp import FastMCP
+import tempfile
+from contextlib import asynccontextmanager 
 
 # 1. SETUP PATHS
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "expenses.db")
-CATEGORIES_PATH = os.path.join(BASE_DIR, "categories.json")
+DB_PATH = os.path.join(tempfile.gettempdir(), "expenses.db")
+CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
+
+@asynccontextmanager
+async def lifespan(app):
+    await init_db()
+    yield
 
 # 2. INITIALIZE MCP
-mcp = FastMCP("ExpenseTracker")
+mcp = FastMCP("ExpenseTracker", lifespan=lifespan)
 
 # 3. ASYNC DATABASE INITIALIZATION
 async def init_db():
