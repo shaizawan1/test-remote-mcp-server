@@ -4,11 +4,10 @@ import json
 import aiosqlite
 import anyio
 from fastmcp import FastMCP
-import tempfile
 from contextlib import asynccontextmanager 
 
 # 1. SETUP PATHS
-DB_PATH = os.path.join(tempfile.gettempdir(), "expenses.db")
+DB_PATH = "file::memory:?cache=shared"
 CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
 
 @asynccontextmanager
